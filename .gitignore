@@ -67,3 +67,6 @@ dist-ssr/
 
 # Local env files for frontend
 *.local
+
+# Runtime data
+WebServer/data/

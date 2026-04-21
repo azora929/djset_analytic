@@ -1,0 +1,32 @@
+.file-dropzone {
+  border: 2px dashed #3c4f74;
+  border-radius: 14px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.file-dropzone--active {
+  border-color: #78a6ff;
+  background: rgba(66, 103, 178, 0.2);
+}
+
+.file-dropzone--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.file-dropzone__title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.file-dropzone__subtitle {
+  margin: 8px 0 0;
+  color: #b5c0d7;
+}
+
+.file-dropzone__meta {
+  margin-top: 12px;
+}

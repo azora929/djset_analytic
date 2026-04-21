@@ -1,0 +1,31 @@
+.auth-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(7, 10, 15, 0.86);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+}
+
+.auth-modal__card {
+  width: min(420px, 92vw);
+  background: #161b26;
+  border: 1px solid #2d3447;
+  border-radius: 14px;
+  padding: 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.auth-modal__card label {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-modal__card input {
+  border: 1px solid #2d3a56;
+  border-radius: 8px;
+  background: #121722;
+  color: #edf2ff;
+  padding: 8px 10px;
+}
