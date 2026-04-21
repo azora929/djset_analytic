@@ -1,0 +1,69 @@
+.env
+
+# Python bytecode / cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+
+# Packaging / build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / coverage outputs
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+nosetests.xml
+pytestdebug.log
+
+# Logs and local runtime files
+*.log
+*.pid
+*.pid.lock
+*.seed
+*.out
+*.err
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Node / React
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# React + Vite outputs/cache
+dist-ssr/
+*.tsbuildinfo
+.eslintcache
+
+# Local env files for frontend
+*.local
