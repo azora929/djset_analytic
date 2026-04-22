@@ -49,15 +49,7 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 ```
 
-### 3) Доп. зависимость для экспорта Word
-
-```bash
-python3 -m pip install python-docx
-```
-
-> В проекте экспорт результата в `.docx` использует `python-docx`.
-
-### 4) Frontend-зависимости и сборка
+### 3) Frontend-зависимости и сборка
 
 ```bash
 cd Frontend
@@ -66,7 +58,7 @@ npm run build
 cd ..
 ```
 
-### 5) Поднять Redis и MongoDB
+### 4) Поднять Redis и MongoDB
 
 Пример через Docker:
 
@@ -75,7 +67,7 @@ docker run --name djset-redis -p 6379:6379 -d redis:7
 docker run --name djset-mongo -p 27017:27017 -d mongo:7
 ```
 
-### 6) Создать `.env` в корне проекта
+### 5) Создать `.env` в корне проекта
 
 Файл `.env` не хранится в репозитории. Создайте его вручную по шаблону ниже.
 
@@ -119,7 +111,7 @@ OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-4.1-mini
 ```
 
-### 7) Запуск
+### 6) Запуск
 
 ```bash
 cd WebServer
