@@ -65,9 +65,9 @@ export function getDownloadUrl(jobId: string): string {
 export async function getActiveScans(): Promise<{ active: ScanJobStatus[]; limit: number }> {
   const response = await fetch(`${API_BASE}/active`, { credentials: "include" });
   if (response.status === 401) {
-    return { active: [], limit: 2 };
+    return { active: [], limit: 3 };
   }
   assertOk(response);
   const data = (await response.json()) as { active: ScanJobStatus[]; limit: number };
-  return { active: data.active ?? [], limit: data.limit ?? 2 };
+  return { active: data.active ?? [], limit: data.limit ?? 3 };
 }

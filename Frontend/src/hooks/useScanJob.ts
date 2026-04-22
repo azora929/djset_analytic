@@ -12,10 +12,11 @@ interface UseScanJobState {
 }
 
 export function useScanJob() {
+  const defaultActiveLimit = 3;
   const [state, setState] = useState<UseScanJobState>({
     isUploading: false,
     currentJobId: null,
-    activeLimit: 2,
+    activeLimit: defaultActiveLimit,
     activeScans: [],
     status: null,
     error: null
@@ -75,7 +76,7 @@ export function useScanJob() {
             activeScans: (() => {
               const rest = prev.activeScans.filter((item) => item.job_id !== data.status!.job_id);
               if (data.status!.status === "queued" || data.status!.status === "running") {
-                return [data.status!, ...rest].slice(0, 2);
+                return [data.status!, ...rest].slice(0, defaultActiveLimit);
               }
               return rest;
             })(),
@@ -114,7 +115,7 @@ export function useScanJob() {
             : active.find((item) => item.job_id === nextCurrentJobId) ?? prev.status;
         return {
           ...prev,
-          activeLimit: limit,
+          activeLimit: limit || defaultActiveLimit,
           activeScans: active,
           currentJobId: nextCurrentJobId,
           status: nextStatus,

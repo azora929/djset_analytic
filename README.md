@@ -103,7 +103,7 @@ CELERY_WORKER_MAX_TASKS_PER_CHILD=20
 CELERY_WORKER_LOGLEVEL=info
 
 # API behavior
-SCAN_MAX_CONCURRENT=2
+SCAN_MAX_CONCURRENT=3
 IDEMPOTENCY_REDIS_URL=redis://localhost:6379/0
 IDEMPOTENCY_TTL_SEC=3600
 
@@ -148,7 +148,7 @@ cd WebServer
 
 ## Поведение и ограничения
 
-- По умолчанию одновременно выполняется не более `2` задач (`SCAN_MAX_CONCURRENT`).
+- По умолчанию одновременно выполняется не более `3` задач (`SCAN_MAX_CONCURRENT`).
 - Повторная отправка запроса может быть защищена `Idempotency-Key`.
 - Исходные тяжелые аудиофайлы удаляются после обработки.
 - Результат формируется AI-этапом и сохраняется в `WebServer/data/results/`.

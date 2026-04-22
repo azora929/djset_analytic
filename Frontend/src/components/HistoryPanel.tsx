@@ -8,6 +8,18 @@ interface HistoryPanelProps {
   onRefresh: () => Promise<void>;
 }
 
+function formatAnalysisDate(item: JobHistoryItem): string {
+  const rawDate = item.completed_at || item.updated_at || item.created_at;
+  if (!rawDate) {
+    return "-";
+  }
+  const parsed = new Date(rawDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return rawDate;
+  }
+  return parsed.toLocaleString("ru-RU");
+}
+
 export function HistoryPanel({ items, loading = false, onRefresh }: HistoryPanelProps) {
   return (
     <section className="card">
@@ -26,6 +38,7 @@ export function HistoryPanel({ items, loading = false, onRefresh }: HistoryPanel
               </p>
               <span className={`history-status history-status--${item.status}`}>{item.status}</span>
             </div>
+            <p className="history-date">Дата анализа: {formatAnalysisDate(item)}</p>
             <p className="history-message">{item.message || "Результат готов к скачиванию"}</p>
             <a className="download-link" href={getDownloadUrl(item.job_id)} target="_blank" rel="noreferrer">
               Скачать DOCX
