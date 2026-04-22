@@ -296,6 +296,7 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
     config.out_titles.parent.mkdir(parents=True, exist_ok=True)
     seen_tracks: set[str] = set()
     tracks: list[str] = []
+    raw_lines: list[str] = []
 
     with tempfile.NamedTemporaryFile(suffix=".wav", prefix=f"scan_{os.getpid()}_", delete=False) as temp:
         temp_wav = Path(temp.name)
@@ -312,6 +313,7 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
             )
             if identify_resp.get("success") and identify_resp.get("token"):
                 for line in extract_title_lines(final_resp):
+                    raw_lines.append(f"{start_sec:.2f}s\t{line}")
                     if line not in seen_tracks:
                         seen_tracks.add(line)
                         tracks.append(line)
@@ -320,7 +322,6 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
                     {
                         "processed_windows": idx,
                         "total_windows": total_windows,
-                        "found_titles": len(tracks),
                         "progress_pct": round((idx / total_windows) * 100, 2) if total_windows else 100.0,
                         "message": f"Обработано окон: {idx}/{total_windows}",
                     }
@@ -328,12 +329,8 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
     finally:
         temp_wav.unlink(missing_ok=True)
 
-    suffix = "\n" if tracks else ""
-    config.out_titles.write_text("\n".join(tracks) + suffix, encoding="utf-8")
-
     return {
         "tracks": tracks,
-        "tracks_found": len(tracks),
+        "raw_text": "\n".join(raw_lines),
         "windows_done": total_windows,
-        "output_titles": str(config.out_titles.resolve()),
     }

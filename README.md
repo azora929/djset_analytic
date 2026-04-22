@@ -62,3 +62,10 @@ python3 run_server.py
 - `MONGODB_URI`, `MONGODB_DB`, `MONGODB_JOBS_COLLECTION` — MongoDB для истории обработок.
 - `CELERY_WORKER_POOL`, `CELERY_WORKER_CONCURRENCY`, `CELERY_WORKER_PREFETCH_MULTIPLIER` — тюнинг воркера.
 - `CELERY_WORKER_MAX_TASKS_PER_CHILD`, `CELERY_WORKER_LOGLEVEL` — стабильность и логирование воркера.
+- `OPENAI_API_KEY`, `OPENAI_MODEL` — этап AI-очистки итогового треклиста (LangGraph + OpenAI).
+
+После этапа AudioTag в AI передается сырой список распознаваний. Нейросеть сама:
+- удаляет дубли и шум,
+- сортирует треклист,
+- проставляет годы (через web search tool),
+- формирует статистику количества треков по годам.

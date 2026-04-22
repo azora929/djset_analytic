@@ -12,11 +12,12 @@ def create_job_record(*, job_id: str, owner: str, source_file: str, source_size_
             "source_file": source_file,
             "source_size_bytes": source_size_bytes,
             "status": "queued",
+            "stage": "queued",
+            "stage_label": "В очереди",
             "created_at": now,
             "updated_at": now,
             "completed_at": None,
             "output_titles": None,
-            "tracks_found": 0,
             "message": None,
         }
     )

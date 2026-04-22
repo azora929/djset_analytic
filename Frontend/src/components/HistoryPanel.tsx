@@ -20,15 +20,15 @@ export function HistoryPanel({ items, loading = false, onRefresh }: HistoryPanel
       <div className="history-list">
         {items.map((item) => (
           <article key={item.job_id} className="history-item">
-            <p>
-              <strong>{item.source_file}</strong>
-            </p>
-            <p>Размер: {Math.round(item.source_size_bytes / 1024 / 1024)} MB</p>
-            <p>Статус: {item.status}</p>
-            <p>Дата: {item.completed_at || item.created_at || "-"}</p>
-            <p>Треков: {item.tracks_found}</p>
-            <a href={getDownloadUrl(item.job_id)} target="_blank" rel="noreferrer">
-              Скачать результат
+            <div className="history-item-head">
+              <p className="history-file">
+                <strong>{item.source_file}</strong>
+              </p>
+              <span className={`history-status history-status--${item.status}`}>{item.status}</span>
+            </div>
+            <p className="history-message">{item.message || "Результат готов к скачиванию"}</p>
+            <a className="download-link" href={getDownloadUrl(item.job_id)} target="_blank" rel="noreferrer">
+              Скачать DOCX
             </a>
           </article>
         ))}

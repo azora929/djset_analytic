@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { AuthModal } from "./components/AuthModal";
 import { FileDropzone } from "./components/FileDropzone";
 import { HistoryPanel } from "./components/HistoryPanel";
-import { ResultPreview } from "./components/ResultPreview";
 import { useAuth } from "./hooks/useAuth";
 import { useScanJob } from "./hooks/useScanJob";
 import { listHistory } from "./services/api";
@@ -12,12 +11,12 @@ import "./styles/App.scss";
 export default function App() {
   const { username, loading: authLoading, error: authError, signIn, signOut } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const { startScan, isUploading, activeScans, activeLimit, status, result, error } = useScanJob();
+  const { startScan, isUploading, activeScans, activeLimit, status, error } = useScanJob();
   const [history, setHistory] = useState<JobHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const activeSummary = activeScans.slice(0, 2);
   const activeSignature = activeScans
-    .map((item) => `${item.job_id}:${item.status}:${item.processed_windows}:${item.found_titles}`)
+    .map((item) => `${item.job_id}:${item.status}:${item.stage}:${item.processed_windows}`)
     .join("|");
 
   const refreshHistory = async () => {
@@ -99,7 +98,8 @@ export default function App() {
           </p>
           {activeSummary.map((item) => (
             <p key={item.job_id}>
-              {item.source_file}: {item.progress_pct}% ({item.processed_windows}/{item.total_windows}), {item.status}
+              {item.source_file}: {item.progress_pct}% ({item.processed_windows}/{item.total_windows}),{" "}
+              {item.stage_label || item.status}
             </p>
           ))}
           {!activeSummary.length ? <p>Активных задач сейчас нет.</p> : null}
@@ -107,8 +107,6 @@ export default function App() {
 
         {error ? <p className="error">{error}</p> : null}
       </section>
-
-      <ResultPreview result={result} />
       {username ? <HistoryPanel items={history} loading={historyLoading} onRefresh={refreshHistory} /> : null}
     </main>
   );

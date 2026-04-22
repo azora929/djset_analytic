@@ -12,6 +12,8 @@ export interface AuthMeResponse {
 export interface ScanJobStatus {
   job_id: string;
   status: JobStatusType;
+  stage?: string | null;
+  stage_label?: string | null;
   raw_state?: string | null;
   created_at: string;
   updated_at: string;
@@ -21,19 +23,8 @@ export interface ScanJobStatus {
   progress_pct: number;
   total_windows: number;
   processed_windows: number;
-  found_titles: number;
   output_titles?: string | null;
   is_done?: boolean;
-}
-
-export interface ScanJobResult {
-  status: ScanJobStatus;
-  payload: {
-    tracks?: string[];
-    tracks_found?: number;
-    windows_done?: number;
-    output_titles?: string;
-  } | null;
 }
 
 export interface JobHistoryItem {
@@ -46,6 +37,5 @@ export interface JobHistoryItem {
   updated_at?: string | null;
   completed_at?: string | null;
   output_titles?: string | null;
-  tracks_found: number;
   message?: string | null;
 }

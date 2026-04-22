@@ -40,5 +40,4 @@ class JobHistoryItem(BaseModel):
     updated_at: str | None = None
     completed_at: str | None = None
     output_titles: str | None = None
-    tracks_found: int = 0
     message: str | None = None
