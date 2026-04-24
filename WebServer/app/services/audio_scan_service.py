@@ -265,6 +265,17 @@ def extract_title_lines(final: dict) -> list[str]:
     return out
 
 
+def _flush_missing_range(
+    missing_ranges: list[tuple[float, float, int]],
+    start_sec: float | None,
+    end_sec: float | None,
+    windows_count: int,
+) -> None:
+    if start_sec is None or end_sec is None or windows_count <= 0:
+        return
+    missing_ranges.append((start_sec, end_sec, windows_count))
+
+
 def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> dict:
     _load_env()
     api_keys = load_audiotag_api_keys()
@@ -297,6 +308,10 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
     seen_tracks: set[str] = set()
     tracks: list[str] = []
     raw_lines: list[str] = []
+    missing_ranges: list[tuple[float, float, int]] = []
+    missing_start: float | None = None
+    missing_end: float | None = None
+    missing_windows_count = 0
 
     with tempfile.NamedTemporaryFile(suffix=".wav", prefix=f"scan_{os.getpid()}_", delete=False) as temp:
         temp_wav = Path(temp.name)
@@ -311,12 +326,26 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
                 max_wait=config.max_wait,
                 interval=config.poll_interval,
             )
+            window_has_tracks = False
             if identify_resp.get("success") and identify_resp.get("token"):
-                for line in extract_title_lines(final_resp):
+                extracted_lines = extract_title_lines(final_resp)
+                if extracted_lines:
+                    window_has_tracks = True
+                for line in extracted_lines:
                     raw_lines.append(f"{start_sec:.2f}s\t{line}")
                     if line not in seen_tracks:
                         seen_tracks.add(line)
                         tracks.append(line)
+            if window_has_tracks:
+                _flush_missing_range(missing_ranges, missing_start, missing_end, missing_windows_count)
+                missing_start = None
+                missing_end = None
+                missing_windows_count = 0
+            else:
+                if missing_start is None:
+                    missing_start = start_sec
+                missing_end = start_sec + config.time_len
+                missing_windows_count += 1
             if progress:
                 progress(
                     {
@@ -329,8 +358,20 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
     finally:
         temp_wav.unlink(missing_ok=True)
 
+    _flush_missing_range(missing_ranges, missing_start, missing_end, missing_windows_count)
+    missing_total = sum(item[2] for item in missing_ranges)
+    missing_pct = round((missing_total / total_windows) * 100, 2) if total_windows else 0.0
+    if missing_ranges:
+        raw_lines.append("")
+        raw_lines.append("Окна без найденных треков:")
+        for start_sec, end_sec, windows_count in missing_ranges:
+            raw_lines.append(f"{start_sec:.2f}s - {end_sec:.2f}s\tокон: {windows_count}")
+        raw_lines.append(f"Процент окон без найденных треков: {missing_pct:.2f}%")
+
     return {
         "tracks": tracks,
         "raw_text": "\n".join(raw_lines),
         "windows_done": total_windows,
+        "missing_windows": missing_total,
+        "missing_windows_pct": missing_pct,
     }
