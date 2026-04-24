@@ -14,7 +14,7 @@ export default function App() {
   const { startScan, isUploading, activeScans, activeLimit, status, error } = useScanJob();
   const [history, setHistory] = useState<JobHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const activeSummary = activeScans.slice(0, 2);
+  const activeSummary = activeScans.slice(0, activeLimit);
   const activeSignature = activeScans
     .map((item) => `${item.job_id}:${item.status}:${item.stage}:${item.processed_windows}`)
     .join("|");
