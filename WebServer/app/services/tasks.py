@@ -31,6 +31,13 @@ def _write_fallback_text(tracks: list[str]) -> str:
     )
 
 
+def _build_pipeline_note(*, ai_note: str, payload: dict) -> str:
+    if payload.get("stopped_early"):
+        reason = str(payload.get("stop_reason") or "внешний API остановил обработку").strip()
+        return f"{ai_note}, partial-scan ({reason})"
+    return ai_note
+
+
 @celery_app.task(bind=True, name="scan_audio_file")
 def scan_audio_file_task(
     self,
@@ -80,7 +87,7 @@ def scan_audio_file_task(
                 STAGE_AI_PROCESSING,
                 {
                 "processed_windows": int(payload.get("windows_done", 0)),
-                "total_windows": int(payload.get("windows_done", 0)),
+                "total_windows": int(payload.get("windows_total", payload.get("windows_done", 0))),
                 "progress_pct": 100.0,
                 "message": "Идет обработка треклиста нейросетью",
                 },
@@ -105,9 +112,10 @@ def scan_audio_file_task(
             ai_note = f"fallback-cleaned ({exc})"
 
         out_titles.write_text(cleaned_text.rstrip() + "\n", encoding="utf-8")
+        pipeline_note = _build_pipeline_note(ai_note=ai_note, payload=payload)
 
         result = {
-            "message": f"Обработка завершена ({ai_note})",
+            "message": f"Обработка завершена ({pipeline_note})",
             "output_titles": str(out_titles.resolve()),
         }
         update_job_record(

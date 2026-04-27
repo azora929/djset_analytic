@@ -2,7 +2,7 @@
 
 DJSet Analytic - это fullstack-сервис для автоматического разбора длинных DJ-сетов:
 - загрузка аудиофайла через веб-интерфейс;
-- фоновое распознавание треков по окнам (AudioTag API);
+- фоновое распознавание треков по окнам (AudD API);
 - AI-очистка и нормализация треклиста (OpenAI);
 - история задач и live-статус по WebSocket;
 - скачивание результата в формате `.docx`.
@@ -18,7 +18,7 @@ DJSet Analytic - это fullstack-сервис для автоматическо
 
 1. Пользователь загружает аудиофайл (`POST /api/scans`).
 2. API ставит задачу в Celery.
-3. Воркер режет аудио на окна и отправляет фрагменты в AudioTag.
+3. Воркер режет аудио на окна и отправляет фрагменты в AudD.
 4. Сырые совпадения передаются в OpenAI для очистки/дедупликации/форматирования.
 5. Итог сохраняется в текст и отдается пользователю как `.docx`.
 6. Статусы этапов (`queued`, `audio_scan`, `ai_processing`, `completed/failed`) транслируются в UI.
@@ -99,12 +99,8 @@ SCAN_MAX_CONCURRENT=3
 IDEMPOTENCY_REDIS_URL=redis://localhost:6379/0
 IDEMPOTENCY_TTL_SEC=3600
 
-# AudioTag (можно до 5 ключей)
-AUDIOTAG_API_KEY=your_key_1
-AUDIOTAG_API_KEY2=
-AUDIOTAG_API_KEY3=
-AUDIOTAG_API_KEY4=
-AUDIOTAG_API_KEY5=
+# AudD
+AUDD_API_KEY=your_audd_api_key
 
 # OpenAI
 OPENAI_API_KEY=your_openai_api_key
@@ -172,7 +168,7 @@ cd WebServer
 - `Для скачивания DOCX установите зависимость: pip install python-docx`  
   Установите пакет `python-docx` в активное окружение Python.
 
-- Ошибки от AudioTag/OpenAI  
+- Ошибки от AudD/OpenAI  
   Проверьте корректность API-ключей и доступность внешних сервисов.
 
 ## Безопасность

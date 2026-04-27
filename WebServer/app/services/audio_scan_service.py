@@ -28,21 +28,19 @@ class ScanConfig:
     limit: int = 0
 
 
-API_URL = "https://audiotag.info/api"
+AUDD_API_URL = "https://api.audd.io/"
 
 
 def _load_env() -> None:
     load_dotenv(PROJECT_ROOT / ".env")
 
 
-def load_audiotag_api_keys() -> list[str]:
-    keys: list[str] = []
-    names = ["AUDIOTAG_API_KEY"] + [f"AUDIOTAG_API_KEY{i}" for i in range(2, 6)]
-    for name in names:
-        value = (os.environ.get(name) or "").strip()
-        if value and value not in keys:
-            keys.append(value)
-    return keys
+def load_audd_api_token() -> str:
+    return (
+        (os.environ.get("AUDD_API_KEY") or "").strip()
+        or (os.environ.get("AUDD_API_TOKEN") or "").strip()
+        or (os.environ.get("AUDIOTAG_API_KEY") or "").strip()
+    )
 
 
 def _ffmpeg_bin() -> str:
@@ -127,80 +125,56 @@ def suggest_min_step(*, duration: float, segment: float, budget_sec: float) -> f
 
 
 def _api_post(data: dict, files: dict | None = None) -> dict:
-    response = requests.post(API_URL, data=data, files=files, timeout=120)
+    response = requests.post(AUDD_API_URL, data=data, files=files, timeout=120)
     response.raise_for_status()
     return response.json()
 
 
-def identify_upload(path: Path, *, apikey: str, start_time: float, time_len: float) -> dict:
+def identify_upload(path: Path, *, api_token: str) -> dict:
     mime = "audio/wav" if path.suffix.lower() == ".wav" else "application/octet-stream"
     with path.open("rb") as file_obj:
         files = {"file": (path.name, file_obj, mime)}
         data = {
-            "apikey": apikey,
-            "action": "identify",
-            "start_time": str(start_time),
-            "time_len": str(time_len),
+            "api_token": api_token,
+            "return": "apple_music,spotify",
         }
         return _api_post(data=data, files=files)
 
 
-def get_result(token: str, apikey: str) -> dict:
-    return _api_post({"apikey": apikey, "action": "get_result", "token": token})
+def _extract_error_code(resp: dict) -> str:
+    error = resp.get("error")
+    if isinstance(error, dict):
+        return str(error.get("error_code") or error.get("code") or "").strip()
+    if isinstance(error, str):
+        return error.strip()
+    return ""
 
 
-def should_try_next_audio_key(resp: dict) -> bool:
-    err = (resp.get("error") or "").strip().lower()
-    if not err:
-        return False
-    skip = ("too short", "could not process", "could not download", "download")
-    if any(s in err for s in skip):
-        return False
-    needles = (
-        "quota",
-        "limit",
-        "exceeded",
-        "balance",
-        "credit",
-        "uploaded",
-        "not enough",
-        "no more",
-        "run out",
-        "out of",
-        "deplet",
-        "exhaust",
-        "invalid api",
-        "invalid key",
-        "unauthor",
-        "forbidden",
-        "wrong api",
-        "wrong key",
-        "no access",
-        "expired",
-    )
-    return any(n in err for n in needles)
+def _extract_error_message(resp: dict) -> str:
+    error = resp.get("error")
+    if isinstance(error, dict):
+        message = str(error.get("error_message") or error.get("message") or "").strip()
+        code = str(error.get("error_code") or error.get("code") or "").strip()
+        return f"{code}: {message}".strip(": ")
+    if isinstance(error, str):
+        return error.strip()
+    return ""
 
 
-def poll_until_done(token: str, apikey: str, *, max_wait: float, interval: float) -> dict:
-    deadline = time.monotonic() + max_wait
-    last: dict = {}
-    while time.monotonic() < deadline:
-        last = get_result(token, apikey)
-        if not last.get("success", False):
-            return last
-        if last.get("error"):
-            return last
-        if (last.get("status") or "").lower() == "done":
-            return last
-        result_code = last.get("result")
-        if result_code in {"found", "not found"}:
-            return last
-        if result_code not in (None, "", "wait", "accepted"):
-            return last
-        time.sleep(interval)
-    last = dict(last) if last else {}
-    last["_client_note"] = f"timeout waiting for recognition ({max_wait:.0f} s)"
-    return last
+def should_stop_scan(resp: dict) -> bool:
+    code = _extract_error_code(resp)
+    error_text = _extract_error_message(resp).lower()
+    # #901: token missing/credits exceeded, #900: invalid token (по документации AudD)
+    stop_codes = {"900", "901"}
+    if code in stop_codes:
+        return True
+    stop_needles = ("quota", "credit", "exceeded", "limit", "invalid api token", "invalid token")
+    return any(needle in error_text for needle in stop_needles)
+
+
+def poll_until_done(response: dict) -> dict:
+    # AudD Standard API возвращает результат синхронно.
+    return response
 
 
 def identify_upload_poll_with_keys(
@@ -212,56 +186,43 @@ def identify_upload_poll_with_keys(
     max_wait: float,
     interval: float,
 ) -> tuple[dict, dict]:
-    last_id: dict = {}
-    last_final: dict = {}
-    for idx, key in enumerate(api_keys):
-        id_resp = identify_upload(upload_path, apikey=key, start_time=start_time, time_len=time_len)
-        last_id = id_resp
-        if not id_resp.get("success"):
-            if should_try_next_audio_key(id_resp) and idx + 1 < len(api_keys):
-                continue
-            return id_resp, {}
-        token = id_resp.get("token")
-        if not token:
-            if should_try_next_audio_key(id_resp) and idx + 1 < len(api_keys):
-                continue
-            return id_resp, {}
-        final = poll_until_done(token, key, max_wait=max_wait, interval=interval)
-        last_final = final
-        if should_try_next_audio_key(final) and idx + 1 < len(api_keys):
-            continue
-        return id_resp, final
-    return last_id, last_final
+    _ = start_time, time_len, max_wait, interval
+    if not api_keys:
+        return {}, {}
+    response = identify_upload(upload_path, api_token=api_keys[0])
+    final = poll_until_done(response)
+    return response, final
+
+
+def _is_successful_recognition(resp: dict) -> bool:
+    if not isinstance(resp, dict):
+        return False
+    status = str(resp.get("status") or "").lower()
+    if status and status != "success":
+        return False
+    return True
 
 
 def extract_title_lines(final: dict) -> list[str]:
     out: list[str] = []
-    if (final.get("result") or "").strip() != "found":
+    if not _is_successful_recognition(final):
         return out
-    data = final.get("data")
+    data = final.get("result")
     if not data:
         return out
-    blocks = data if isinstance(data, list) else [data]
-    for block in blocks:
-        if not isinstance(block, dict):
+    rows = data if isinstance(data, list) else [data]
+    for row in rows:
+        if not isinstance(row, dict):
             continue
-        tracks = block.get("tracks")
-        if tracks is None:
+        artist = row.get("artist")
+        title = row.get("title")
+        album = row.get("album")
+        if not artist and not title:
             continue
-        items = tracks if isinstance(tracks, list) else [tracks]
-        for track in items:
-            if isinstance(track, (list, tuple)) and len(track) >= 2:
-                title, artist = track[0], track[1]
-                album = track[2] if len(track) > 2 else ""
-                line = f"{artist} — {title}"
-                if album:
-                    line += f" ({album})"
-                out.append(line)
-            elif isinstance(track, dict):
-                title = track.get("title") or track.get("track name") or track.get("name")
-                artist = track.get("artist") or track.get("artist name")
-                if title or artist:
-                    out.append(f"{artist or '?'} — {title or '?'}")
+        line = f"{artist or '?'} — {title or '?'}"
+        if album:
+            line += f" ({album})"
+        out.append(line)
     return out
 
 
@@ -278,9 +239,10 @@ def _flush_missing_range(
 
 def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> dict:
     _load_env()
-    api_keys = load_audiotag_api_keys()
-    if not api_keys:
-        raise RuntimeError("Не заданы API-ключи AudioTag в .env (AUDIOTAG_API_KEY..AUDIOTAG_API_KEY5).")
+    api_token = load_audd_api_token()
+    if not api_token:
+        raise RuntimeError("Не задан AUDD_API_KEY (или AUDD_API_TOKEN) в .env.")
+    api_keys = [api_token]
 
     if config.time_len < 5:
         raise RuntimeError("AudioTag требует минимум 5 секунд на фрагмент.")
@@ -312,30 +274,46 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
     missing_start: float | None = None
     missing_end: float | None = None
     missing_windows_count = 0
+    processed_windows = 0
+    stopped_early = False
+    stop_reason = ""
 
     with tempfile.NamedTemporaryFile(suffix=".wav", prefix=f"scan_{os.getpid()}_", delete=False) as temp:
         temp_wav = Path(temp.name)
     try:
         for idx, start_sec in enumerate(starts, start=1):
             ffmpeg_extract_audiotag_wav(src, temp_wav, start_sec=start_sec, duration_sec=config.time_len)
-            identify_resp, final_resp = identify_upload_poll_with_keys(
-                temp_wav,
-                api_keys=api_keys,
-                start_time=0.0,
-                time_len=config.time_len,
-                max_wait=config.max_wait,
-                interval=config.poll_interval,
-            )
+            try:
+                identify_resp, final_resp = identify_upload_poll_with_keys(
+                    temp_wav,
+                    api_keys=api_keys,
+                    start_time=0.0,
+                    time_len=config.time_len,
+                    max_wait=config.max_wait,
+                    interval=config.poll_interval,
+                )
+            except requests.RequestException as exc:
+                stopped_early = True
+                stop_reason = f"AudD request error: {exc}"
+                break
+
+            if should_stop_scan(identify_resp) or should_stop_scan(final_resp):
+                stopped_early = True
+                stop_reason = _extract_error_message(final_resp) or _extract_error_message(identify_resp) or (
+                    "AudD вернул ошибку лимита/токена."
+                )
+                break
+
+            processed_windows = idx
             window_has_tracks = False
-            if identify_resp.get("success") and identify_resp.get("token"):
-                extracted_lines = extract_title_lines(final_resp)
-                if extracted_lines:
-                    window_has_tracks = True
-                for line in extracted_lines:
-                    raw_lines.append(f"{start_sec:.2f}s\t{line}")
-                    if line not in seen_tracks:
-                        seen_tracks.add(line)
-                        tracks.append(line)
+            extracted_lines = extract_title_lines(final_resp)
+            if extracted_lines:
+                window_has_tracks = True
+            for line in extracted_lines:
+                raw_lines.append(f"{start_sec:.2f}s\t{line}")
+                if line not in seen_tracks:
+                    seen_tracks.add(line)
+                    tracks.append(line)
             if window_has_tracks:
                 _flush_missing_range(missing_ranges, missing_start, missing_end, missing_windows_count)
                 missing_start = None
@@ -360,18 +338,25 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
 
     _flush_missing_range(missing_ranges, missing_start, missing_end, missing_windows_count)
     missing_total = sum(item[2] for item in missing_ranges)
-    missing_pct = round((missing_total / total_windows) * 100, 2) if total_windows else 0.0
+    denominator = processed_windows if processed_windows > 0 else total_windows
+    missing_pct = round((missing_total / denominator) * 100, 2) if denominator else 0.0
     if missing_ranges:
         raw_lines.append("")
         raw_lines.append("Окна без найденных треков:")
         for start_sec, end_sec, windows_count in missing_ranges:
             raw_lines.append(f"{start_sec:.2f}s - {end_sec:.2f}s\tокон: {windows_count}")
         raw_lines.append(f"Процент окон без найденных треков: {missing_pct:.2f}%")
+    if stopped_early:
+        raw_lines.append("")
+        raw_lines.append(f"Сканирование остановлено досрочно: {stop_reason}")
 
     return {
         "tracks": tracks,
         "raw_text": "\n".join(raw_lines),
-        "windows_done": total_windows,
+        "windows_done": processed_windows,
+        "windows_total": total_windows,
         "missing_windows": missing_total,
         "missing_windows_pct": missing_pct,
+        "stopped_early": stopped_early,
+        "stop_reason": stop_reason,
     }

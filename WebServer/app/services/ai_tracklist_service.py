@@ -43,7 +43,7 @@ def _clean_with_openai(state: CleanState) -> CleanState:
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY не задан.")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=OPENAI_API_KEY, max_retries=3)
     user_prompt = f"Сырой список распознаваний:\n{state['raw_text']}\n"
 
     try:
