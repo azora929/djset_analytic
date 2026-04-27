@@ -2,7 +2,9 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
+import webbrowser
 
 import uvicorn
 
@@ -13,6 +15,8 @@ from app.core.config import (
     CELERY_WORKER_POOL,
 )
 from app.services.runtime_cleanup import cleanup_on_shutdown
+
+APP_URL = "http://localhost:8000"
 
 
 def _start_worker() -> subprocess.Popen[bytes]:
@@ -45,6 +49,18 @@ def _stop_worker(proc: subprocess.Popen[bytes] | None) -> None:
         proc.wait(timeout=5)
 
 
+def _open_browser_after_startup(url: str) -> None:
+    should_open = os.getenv("OPEN_BROWSER_ON_STARTUP", "1").strip().lower() not in {"0", "false", "no"}
+    if not should_open:
+        return
+
+    def _open() -> None:
+        time.sleep(1.5)
+        webbrowser.open(url)
+
+    threading.Thread(target=_open, daemon=True).start()
+
+
 def main() -> None:
     worker = _start_worker()
     time.sleep(1.0)
@@ -52,6 +68,7 @@ def main() -> None:
         raise RuntimeError("Celery worker завершился сразу после старта. Проверь Redis и зависимости.")
 
     try:
+        _open_browser_after_startup(APP_URL)
         uvicorn.run("app.main:app", host="localhost", port=8000, reload=False)
     finally:
         cleanup_on_shutdown()

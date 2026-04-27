@@ -28,7 +28,6 @@ DJSet Analytic - это fullstack-сервис для автоматическо
 - Python 3.11+ (рекомендуется 3.12)
 - Node.js 18+
 - Redis 7+
-- MongoDB 6+
 - `ffmpeg` и `ffprobe` в `PATH`
 
 ## Быстрый старт
@@ -58,13 +57,12 @@ npm run build
 cd ..
 ```
 
-### 4) Поднять Redis и MongoDB
+### 4) Поднять Redis
 
 Пример через Docker:
 
 ```bash
 docker run --name djset-redis -p 6379:6379 -d redis:7
-docker run --name djset-mongo -p 27017:27017 -d mongo:7
 ```
 
 ### 5) Создать `.env` в корне проекта
@@ -80,11 +78,6 @@ JWT_TTL_SEC=172800
 AUTH_COOKIE_NAME=djset_auth
 AUTH_REDIS_URL=redis://localhost:6379/0
 
-# Mongo
-MONGODB_URI=mongodb://localhost:27017
-MONGODB_DB=djset_analytic
-MONGODB_JOBS_COLLECTION=scan_jobs
-
 # Celery / queue
 CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/1
@@ -98,6 +91,7 @@ CELERY_WORKER_LOGLEVEL=info
 SCAN_MAX_CONCURRENT=3
 IDEMPOTENCY_REDIS_URL=redis://localhost:6379/0
 IDEMPOTENCY_TTL_SEC=3600
+OPEN_BROWSER_ON_STARTUP=1
 
 # AudD
 AUDD_API_KEY=your_audd_api_key
@@ -140,6 +134,7 @@ cd WebServer
 - Повторная отправка запроса может быть защищена `Idempotency-Key`.
 - Исходные тяжелые аудиофайлы удаляются после обработки.
 - Результат формируется AI-этапом и сохраняется в `WebServer/data/results/`.
+- История задач хранится локально в SQLite-файле (`DATA_ROOT/jobs.sqlite3`), без MongoDB.
 
 ## Разработка
 
@@ -157,13 +152,31 @@ cd WebServer
 ../venv/bin/python run_server.py
 ```
 
+## Сборка в Windows `.exe` (PyInstaller)
+
+Проект можно упаковать в один исполняемый файл, который:
+- поднимает локальный backend/worker;
+- автоматически открывает браузер на `http://localhost:8000`.
+
+Пример команды в Windows:
+
+```bash
+pyinstaller --onefile --name DJSetAnalytic WebServer/run_server.py
+```
+
+После сборки файл будет в `dist/DJSetAnalytic.exe`.
+
+Примечание:
+- для корректной работы рядом с `.exe` должны быть доступны собранный frontend (`Frontend/dist`) и зависимости Python;
+- локальные данные по умолчанию сохраняются в `ProgramData/DJSetAnalytic/data` (если не задан `DATA_ROOT`).
+
 ## Типовые проблемы
 
 - `RuntimeError: Нужен ffmpeg в PATH`  
   Установите ffmpeg и убедитесь, что `ffmpeg`/`ffprobe` доступны из терминала.
 
-- Ошибки подключения к Redis/Mongo  
-  Проверьте контейнеры/службы и URL в `.env`.
+- Ошибки подключения к Redis  
+  Проверьте контейнер Redis и URL в `.env`.
 
 - `Для скачивания DOCX установите зависимость: pip install python-docx`  
   Установите пакет `python-docx` в активное окружение Python.

@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 
 from dotenv import load_dotenv
 
@@ -10,9 +11,19 @@ load_dotenv(PROJECT_ROOT / ".env")
 WEB_ROOT = PROJECT_ROOT / "WebServer"
 FRONTEND_DIST = PROJECT_ROOT / "Frontend" / "dist"
 
-DATA_ROOT = WEB_ROOT / "data"
+def _default_data_root() -> Path:
+    if sys.platform.startswith("win"):
+        program_data = os.getenv("PROGRAMDATA")
+        if program_data:
+            return Path(program_data) / "DJSetAnalytic" / "data"
+        return Path.home() / "AppData" / "Local" / "DJSetAnalytic" / "data"
+    return WEB_ROOT / "data"
+
+
+DATA_ROOT = Path(os.getenv("DATA_ROOT", str(_default_data_root())))
 UPLOADS_DIR = DATA_ROOT / "uploads"
 RESULTS_DIR = DATA_ROOT / "results"
+JOBS_DB_PATH = DATA_ROOT / "jobs.sqlite3"
 
 CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/1")
@@ -32,10 +43,6 @@ JWT_ALGORITHM = "HS256"
 JWT_TTL_SEC = int(os.getenv("JWT_TTL_SEC", "172800"))
 AUTH_COOKIE_NAME = os.getenv("AUTH_COOKIE_NAME", "djset_auth")
 AUTH_REDIS_URL = os.getenv("AUTH_REDIS_URL", CELERY_BROKER_URL)
-
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
-MONGODB_DB = os.getenv("MONGODB_DB", "djset_analytic")
-MONGODB_JOBS_COLLECTION = os.getenv("MONGODB_JOBS_COLLECTION", "scan_jobs")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
@@ -92,5 +99,6 @@ AI_TRACKLIST_SYSTEM_PROMPT = """\
 ..."""
 
 def ensure_data_dirs() -> None:
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
