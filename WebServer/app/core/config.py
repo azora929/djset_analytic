@@ -5,8 +5,44 @@ import sys
 from dotenv import load_dotenv
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-load_dotenv(PROJECT_ROOT / ".env")
+def _detect_project_root() -> Path:
+    # PyInstaller onefile: ресурсы распакованы во временную папку _MEIPASS.
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        return Path(meipass)
+    return Path(__file__).resolve().parents[3]
+
+
+PROJECT_ROOT = _detect_project_root()
+
+
+def _load_env() -> None:
+    # Порядок важен: сначала .env рядом с exe/cwd, затем fallback в исходный root.
+    candidates: list[Path] = []
+    env_path_override = (os.getenv("ENV_PATH") or "").strip()
+    if env_path_override:
+        candidates.append(Path(env_path_override))
+    cwd = Path.cwd()
+    candidates.append(cwd / ".env")
+    candidates.append(cwd.parent / ".env")
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates.append(exe_dir / ".env")
+        candidates.append(exe_dir.parent / ".env")
+    candidates.append(PROJECT_ROOT / ".env")
+
+    seen: set[str] = set()
+    for path in candidates:
+        key = str(path.resolve()) if path.exists() else str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        if path.exists():
+            load_dotenv(path, override=False)
+            break
+
+
+_load_env()
 
 WEB_ROOT = PROJECT_ROOT / "WebServer"
 FRONTEND_DIST = PROJECT_ROOT / "Frontend" / "dist"

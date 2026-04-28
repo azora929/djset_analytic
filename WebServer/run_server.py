@@ -2,6 +2,7 @@ import os
 import threading
 import time
 import webbrowser
+import sys
 
 import uvicorn
 
@@ -24,7 +25,15 @@ def _open_browser_after_startup(url: str) -> None:
 def main() -> None:
     try:
         _open_browser_after_startup(APP_URL)
-        uvicorn.run("app.main:app", host="localhost", port=8000, reload=False)
+        has_tty = bool(sys.stdout) and hasattr(sys.stdout, "isatty")
+        uvicorn.run(
+            "app.main:app",
+            host="localhost",
+            port=8000,
+            reload=False,
+            use_colors=bool(has_tty and sys.stdout and sys.stdout.isatty()),
+            log_config=None if not sys.stdout else uvicorn.config.LOGGING_CONFIG,
+        )
     finally:
         cleanup_on_shutdown()
 
