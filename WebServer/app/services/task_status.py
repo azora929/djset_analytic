@@ -1,9 +1,6 @@
 from datetime import datetime, timezone
 
-from celery.result import AsyncResult
-
-
-def map_celery_state(raw_state: str) -> str:
+def map_task_state(raw_state: str) -> str:
     normalized = (raw_state or "").upper()
     if normalized in {"PENDING", "RECEIVED"}:
         return "queued"
@@ -24,31 +21,6 @@ def _default_stage(status: str) -> tuple[str, str]:
     return "failed", "Ошибка"
 
 
-def _safe_raw_state(async_result: AsyncResult) -> tuple[str, str | None]:
-    try:
-        return (async_result.state or "PENDING").upper(), None
-    except Exception as exc:
-        return "FAILURE", str(exc)
-
-
-def _safe_info(async_result: AsyncResult) -> tuple[dict, str | None]:
-    try:
-        info = async_result.info
-    except Exception as exc:
-        return {}, str(exc)
-    return (info if isinstance(info, dict) else {}), None
-
-
-def _safe_success_result(async_result: AsyncResult, raw_state: str) -> tuple[dict, str | None]:
-    if raw_state != "SUCCESS":
-        return {}, None
-    try:
-        result = async_result.result
-    except Exception as exc:
-        return {}, str(exc)
-    return (result if isinstance(result, dict) else {}), None
-
-
 def _resolve_message(
     *,
     result_payload: dict,
@@ -66,23 +38,23 @@ def _resolve_message(
     )
 
 
-def build_status(task_id: str, job: dict, async_result: AsyncResult) -> dict:
+def build_status(task_id: str, job: dict, task_snapshot: dict | None) -> dict:
     now_iso = datetime.now(timezone.utc).isoformat()
-    raw_state, state_error = _safe_raw_state(async_result)
-    celery_meta, info_error = _safe_info(async_result)
-    status = map_celery_state(raw_state)
+    snap = task_snapshot or {}
+    raw_state = str(snap.get("state") or "PENDING").upper()
+    meta = snap.get("meta") if isinstance(snap.get("meta"), dict) else {}
+    result_payload = snap.get("result") if isinstance(snap.get("result"), dict) else {}
+    backend_error = str(snap.get("error") or "").strip() or None
+    status = map_task_state(raw_state)
     is_done = raw_state in {"SUCCESS", "FAILURE", "REVOKED"}
-
-    result_payload, result_error = _safe_success_result(async_result, raw_state)
-    backend_error = state_error or info_error or result_error
     if backend_error:
         status = "failed"
         raw_state = "FAILURE"
         is_done = True
 
     default_stage, default_stage_label = _default_stage(status)
-    stage = celery_meta.get("stage") or job.get("stage") or default_stage
-    stage_label = celery_meta.get("stage_label") or job.get("stage_label") or default_stage_label
+    stage = meta.get("stage") or job.get("stage") or default_stage
+    stage_label = meta.get("stage_label") or job.get("stage_label") or default_stage_label
 
     return {
         "job_id": task_id,
@@ -96,14 +68,14 @@ def build_status(task_id: str, job: dict, async_result: AsyncResult) -> dict:
         "source_size_bytes": int(job.get("source_size_bytes", 0)),
         "message": _resolve_message(
             result_payload=result_payload,
-            celery_meta=celery_meta,
+            celery_meta=meta,
             job=job,
             backend_error=backend_error,
             raw_state=raw_state,
         ),
-        "progress_pct": float(celery_meta.get("progress_pct", 100.0 if raw_state == "SUCCESS" else 0.0)),
-        "total_windows": int(celery_meta.get("total_windows", 0)),
-        "processed_windows": int(celery_meta.get("processed_windows", 0)),
+        "progress_pct": float(meta.get("progress_pct", 100.0 if raw_state == "SUCCESS" else 0.0)),
+        "total_windows": int(meta.get("total_windows", 0)),
+        "processed_windows": int(meta.get("processed_windows", 0)),
         "output_titles": result_payload.get("output_titles") or job.get("output_titles"),
         "is_done": is_done,
     }

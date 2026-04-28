@@ -9,7 +9,7 @@ DJSet Analytic - это fullstack-сервис для автоматическо
 
 ## Что внутри
 
-- `WebServer/` - FastAPI API, Celery worker, бизнес-логика обработки.
+- `WebServer/` - FastAPI API, локальный фоновый worker, бизнес-логика обработки.
 - `Frontend/` - React + TypeScript интерфейс.
 - `WebServer/data/uploads/` - временные входные файлы.
 - `WebServer/data/results/` - финальные результаты обработки.
@@ -17,7 +17,7 @@ DJSet Analytic - это fullstack-сервис для автоматическо
 ## Архитектура (коротко)
 
 1. Пользователь загружает аудиофайл (`POST /api/scans`).
-2. API ставит задачу в Celery.
+2. API ставит задачу во встроенную локальную очередь.
 3. Воркер режет аудио на окна и отправляет фрагменты в AudD.
 4. Сырые совпадения передаются в OpenAI для очистки/дедупликации/форматирования.
 5. Итог сохраняется в текст и отдается пользователю как `.docx`.
@@ -27,7 +27,6 @@ DJSet Analytic - это fullstack-сервис для автоматическо
 
 - Python 3.11+ (рекомендуется 3.12)
 - Node.js 18+
-- Redis 7+
 - `ffmpeg` и `ffprobe` в `PATH`
 
 ## Быстрый старт
@@ -57,15 +56,7 @@ npm run build
 cd ..
 ```
 
-### 4) Поднять Redis
-
-Пример через Docker:
-
-```bash
-docker run --name djset-redis -p 6379:6379 -d redis:7
-```
-
-### 5) Создать `.env` в корне проекта
+### 4) Создать `.env` в корне проекта
 
 Файл `.env` не хранится в репозитории. Создайте его вручную по шаблону ниже.
 
@@ -76,20 +67,12 @@ PASSWORD=admin
 JWT_SECRET=change-me
 JWT_TTL_SEC=172800
 AUTH_COOKIE_NAME=djset_auth
-AUTH_REDIS_URL=redis://localhost:6379/0
 
-# Celery / queue
-CELERY_BROKER_URL=redis://localhost:6379/0
-CELERY_RESULT_BACKEND=redis://localhost:6379/1
-CELERY_WORKER_POOL=prefork
-CELERY_WORKER_CONCURRENCY=2
-CELERY_WORKER_PREFETCH_MULTIPLIER=1
-CELERY_WORKER_MAX_TASKS_PER_CHILD=20
-CELERY_WORKER_LOGLEVEL=info
+# Optional local data root override
+# DATA_ROOT=C:/ProgramData/DJSetAnalytic/data
 
 # API behavior
 SCAN_MAX_CONCURRENT=3
-IDEMPOTENCY_REDIS_URL=redis://localhost:6379/0
 IDEMPOTENCY_TTL_SEC=3600
 OPEN_BROWSER_ON_STARTUP=1
 
@@ -101,7 +84,7 @@ OPENAI_API_KEY=your_openai_api_key
 OPENAI_MODEL=gpt-4.1-mini
 ```
 
-### 6) Запуск
+### 5) Запуск
 
 ```bash
 cd WebServer
@@ -111,8 +94,9 @@ cd WebServer
 Сервис будет доступен на [http://localhost:8000](http://localhost:8000).
 
 `run_server.py` запускает:
-- Celery worker;
-- FastAPI + Uvicorn.
+- FastAPI + Uvicorn;
+- встроенный локальный worker (без Redis/Celery-сервера);
+- автозапуск браузера.
 
 ## API
 
@@ -158,25 +142,111 @@ cd WebServer
 - поднимает локальный backend/worker;
 - автоматически открывает браузер на `http://localhost:8000`.
 
-Пример команды в Windows:
+### 1) Где собирать
+
+Собирать `.exe` нужно на Windows (или в Windows VM).  
+PyInstaller собирает бинарник под текущую ОС.
+
+### 2) Подготовка окружения
+
+В корне проекта:
 
 ```bash
-pyinstaller --onefile --name DJSetAnalytic WebServer/run_server.py
+python -m venv venv
+venv\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install pyinstaller python-docx
 ```
 
-После сборки файл будет в `dist/DJSetAnalytic.exe`.
+### 3) Собрать frontend (обязательно)
+
+```bash
+cd Frontend
+npm install
+npm run build
+cd ..
+```
+
+После этого должна существовать папка `Frontend/dist`.
+
+### 4) Сборка `.exe`
+
+Из корня проекта:
+
+```bash
+pyinstaller --onefile --name DJSetAnalytic --add-data "Frontend/dist;Frontend/dist" --add-data "WebServer/app;app" WebServer/run_server.py
+```
+
+Готовый файл будет в:
+
+```text
+dist\DJSetAnalytic.exe
+```
+
+### 5) Режим без консоли (опционально)
+
+Если нужен запуск без terminal window:
+
+```bash
+pyinstaller --onefile --windowed --name DJSetAnalytic --add-data "Frontend/dist;Frontend/dist" --add-data "WebServer/app;app" WebServer/run_server.py
+```
+
+### 6) Что нужно на компьютере пользователя
+
+Нужно:
+- `DJSetAnalytic.exe`;
+- `ffmpeg` и `ffprobe` в `PATH`;
+- интернет-доступ к AudD/OpenAI API;
+- `.env` рядом с приложением (или в рабочей директории запуска).
+
+Не нужно:
+- Redis;
+- MongoDB;
+- Node.js;
+- Python (при корректной сборке PyInstaller).
+
+### 7) Пример `.env` для desktop-запуска
+
+```dotenv
+# Auth
+LOGIN=admin
+PASSWORD=admin
+JWT_SECRET=change-me
+JWT_TTL_SEC=172800
+AUTH_COOKIE_NAME=djset_auth
+
+# Optional local data root override
+# DATA_ROOT=C:/ProgramData/DJSetAnalytic/data
+
+# API behavior
+SCAN_MAX_CONCURRENT=3
+IDEMPOTENCY_TTL_SEC=3600
+OPEN_BROWSER_ON_STARTUP=1
+
+# AudD
+AUDD_API_KEY=your_audd_api_key
+
+# OpenAI
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4.1-mini
+```
+
+### 8) Запуск на целевой машине
+
+1. Убедиться, что `ffmpeg` и `ffprobe` доступны из командной строки.
+2. Положить `.env` рядом с `DJSetAnalytic.exe`.
+3. Запустить `DJSetAnalytic.exe`.
+4. Приложение откроет браузер на `http://localhost:8000`.
 
 Примечание:
-- для корректной работы рядом с `.exe` должны быть доступны собранный frontend (`Frontend/dist`) и зависимости Python;
 - локальные данные по умолчанию сохраняются в `ProgramData/DJSetAnalytic/data` (если не задан `DATA_ROOT`).
+- если браузер не нужно открывать автоматически, поставьте `OPEN_BROWSER_ON_STARTUP=0`.
 
 ## Типовые проблемы
 
 - `RuntimeError: Нужен ffmpeg в PATH`  
   Установите ffmpeg и убедитесь, что `ffmpeg`/`ffprobe` доступны из терминала.
-
-- Ошибки подключения к Redis  
-  Проверьте контейнер Redis и URL в `.env`.
 
 - `Для скачивания DOCX установите зависимость: pip install python-docx`  
   Установите пакет `python-docx` в активное окружение Python.

@@ -2,11 +2,9 @@ import asyncio
 from pathlib import Path
 from uuid import uuid4
 
-from celery.result import AsyncResult
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
-from app.celery_app import celery_app
 from app.core.config import SCAN_MAX_CONCURRENT
 from app.models.schemas import JobHistoryItem, ScanCreateResponse, ScanOptions
 from app.services.auth import get_current_user, get_ws_current_user
@@ -18,6 +16,7 @@ from app.services.job_store import (
     list_jobs,
     update_job_record,
 )
+from app.services.local_task_queue import local_task_queue
 from app.services.task_status import build_status
 from app.services.tasks import scan_audio_file_task
 from app.utils.files import sanitize_filename, save_upload_file
@@ -44,8 +43,18 @@ def _build_docx_from_text(source_txt: Path) -> Path:
 
 
 def _build_live_status(job: dict) -> dict:
-    async_result = AsyncResult(job["job_id"], app=celery_app)
-    return build_status(job["job_id"], job, async_result)
+    snapshot = local_task_queue.get(job["job_id"])
+    snapshot_dict = (
+        {
+            "state": snapshot.state,
+            "meta": snapshot.meta,
+            "result": snapshot.result,
+            "error": snapshot.error,
+        }
+        if snapshot
+        else None
+    )
+    return build_status(job["job_id"], job, snapshot_dict)
 
 
 def _normalize_finished_job(job: dict, live: dict) -> None:
@@ -82,7 +91,7 @@ def _resolve_idempotency(idempotency_key: str | None) -> tuple[str | None, str |
         existing_job = get_job(existing_job_id)
         if existing_job:
             return existing_job_id, None
-        # stale mapping: запись в Redis есть, а job в Mongo уже удалили/очистили
+        # stale mapping: запись в idempotency store есть, а job уже отсутствует
         release_key(scoped_key)
     if not reserve_key(scoped_key):
         raise HTTPException(status_code=409, detail="Запрос с этим ключом уже обрабатывается.")
@@ -109,12 +118,12 @@ def _build_ws_fallback_status(job_id: str, current_job: dict, error: Exception) 
     }
 
 
-def _safe_failure_error(async_result: AsyncResult) -> str | None:
-    try:
-        if async_result.state == "FAILURE":
-            return str(async_result.result)
-    except Exception as exc:
-        return f"Ошибка чтения ошибки Celery: {exc}"
+def _safe_failure_error(task_snapshot: dict | None) -> str | None:
+    if not task_snapshot:
+        return None
+    state = str(task_snapshot.get("state") or "").upper()
+    if state == "FAILURE":
+        return str(task_snapshot.get("error") or "Ошибка фоновой задачи")
     return None
 
 
@@ -145,8 +154,9 @@ async def create_scan_job(
         source_size_bytes=saved_path.stat().st_size,
     )
     try:
-        task = scan_audio_file_task.apply_async(
+        local_task_queue.submit(
             task_id=planned_job_id,
+            target=scan_audio_file_task,
             kwargs={
                 "source_path": str(saved_path.resolve()),
                 "options": options.model_dump(),
@@ -156,14 +166,14 @@ async def create_scan_job(
             },
         )
         if scoped_key:
-            commit_job_id(scoped_key, task.id)
+            commit_job_id(scoped_key, planned_job_id)
     except Exception as exc:
         saved_path.unlink(missing_ok=True)
         update_job_record(planned_job_id, status="failed", message=f"Queue error: {exc}")
         if scoped_key:
             release_key(scoped_key)
         raise HTTPException(status_code=500, detail=f"Не удалось запустить задачу: {exc}") from exc
-    return ScanCreateResponse(job_id=task.id, status="queued")
+    return ScanCreateResponse(job_id=planned_job_id, status="queued")
 
 
 @router.get("/active")
@@ -216,13 +226,23 @@ async def stream_scan_status(job_id: str, websocket: WebSocket) -> None:
     try:
         while True:
             current_job = get_job(job_id) or job
-            async_result = AsyncResult(job_id, app=celery_app)
+            snapshot = local_task_queue.get(job_id)
+            snapshot_dict = (
+                {
+                    "state": snapshot.state,
+                    "meta": snapshot.meta,
+                    "result": snapshot.result,
+                    "error": snapshot.error,
+                }
+                if snapshot
+                else None
+            )
             try:
-                status = build_status(job_id, current_job, async_result)
+                status = build_status(job_id, current_job, snapshot_dict)
             except Exception as exc:
                 status = _build_ws_fallback_status(job_id, current_job, exc)
             response: dict = {"type": "status", "status": status}
-            failure_error = _safe_failure_error(async_result)
+            failure_error = _safe_failure_error(snapshot_dict)
             if failure_error:
                 response["error"] = failure_error
 

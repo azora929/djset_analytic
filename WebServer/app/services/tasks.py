@@ -1,8 +1,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
-from app.celery_app import celery_app
 from app.core.config import RESULTS_DIR
 from app.services.ai_tracklist_service import clean_tracklist_with_ai
 from app.services.audio_scan_service import ScanConfig, run_scan
@@ -38,21 +37,18 @@ def _build_pipeline_note(*, ai_note: str, payload: dict) -> str:
     return ai_note
 
 
-@celery_app.task(bind=True, name="scan_audio_file")
 def scan_audio_file_task(
-    self,
     *,
+    task_id: str,
     source_path: str,
     options: dict,
     owner: str,
     source_file: str,
     source_size_bytes: int,
+    progress_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict:
     source = Path(source_path).resolve()
     base_name = source.stem
-    task_id = self.request.id
-    if not task_id:
-        raise RuntimeError("Celery task id is missing.")
 
     out_titles = RESULTS_DIR / f"{task_id}_{base_name}_cleaned_tracklist.txt"
 
@@ -69,7 +65,8 @@ def scan_audio_file_task(
 
     def progress(update: dict) -> None:
         meta = _stage_meta(STAGE_AUDIO_SCAN, update)
-        self.update_state(state="PROGRESS", meta=meta)
+        if progress_callback:
+            progress_callback(meta)
         update_job_record(
             task_id,
             status="running",
@@ -81,18 +78,18 @@ def scan_audio_file_task(
     try:
         payload = run_scan(config, progress=progress)
         raw_text = str(payload.get("raw_text") or "")
-        self.update_state(
-            state="PROGRESS",
-            meta=_stage_meta(
-                STAGE_AI_PROCESSING,
-                {
-                "processed_windows": int(payload.get("windows_done", 0)),
-                "total_windows": int(payload.get("windows_total", payload.get("windows_done", 0))),
-                "progress_pct": 100.0,
-                "message": "Идет обработка треклиста нейросетью",
-                },
-            ),
-        )
+        if progress_callback:
+            progress_callback(
+                _stage_meta(
+                    STAGE_AI_PROCESSING,
+                    {
+                        "processed_windows": int(payload.get("windows_done", 0)),
+                        "total_windows": int(payload.get("windows_total", payload.get("windows_done", 0))),
+                        "progress_pct": 100.0,
+                        "message": "Идет обработка треклиста нейросетью",
+                    },
+                )
+            )
         update_job_record(
             task_id,
             status="running",
