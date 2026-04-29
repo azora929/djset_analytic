@@ -27,7 +27,7 @@ DJSet Analytic - это fullstack-сервис для автоматическо
 
 - Python 3.11+ (рекомендуется 3.12)
 - Node.js 18+
-- `ffmpeg` и `ffprobe` в `PATH`
+- `ffmpeg` и `ffprobe` (можно системные в `PATH` или локальные в `WebServer/bin`)
 
 ## Быстрый старт
 
@@ -175,7 +175,7 @@ cd ..
 Из корня проекта:
 
 ```bash
-pyinstaller --onefile --name DJSetAnalytic --add-data "Frontend/dist;Frontend/dist" --add-data "WebServer/app;app" WebServer/run_server.py
+pyinstaller --onefile --name DJSetAnalytic --add-data "Frontend/dist;Frontend/dist" --add-data "WebServer/app;app" --add-binary "WebServer/bin/ffmpeg.exe;bin" --add-binary "WebServer/bin/ffprobe.exe;bin" WebServer/run_server.py
 ```
 
 Готовый файл будет в:
@@ -189,14 +189,13 @@ dist\DJSetAnalytic.exe
 Если нужен запуск без terminal window:
 
 ```bash
-pyinstaller --onefile --windowed --name DJSetAnalytic --add-data "Frontend/dist;Frontend/dist" --add-data "WebServer/app;app" WebServer/run_server.py
+pyinstaller --onefile --windowed --name DJSetAnalytic --add-data "Frontend/dist;Frontend/dist" --add-data "WebServer/app;app" --add-binary "WebServer/bin/ffmpeg.exe;bin" --add-binary "WebServer/bin/ffprobe.exe;bin" WebServer/run_server.py
 ```
 
 ### 6) Что нужно на компьютере пользователя
 
 Нужно:
 - `DJSetAnalytic.exe`;
-- `ffmpeg` и `ffprobe` в `PATH`;
 - интернет-доступ к AudD/OpenAI API;
 - `.env` рядом с приложением (или в рабочей директории запуска).
 
@@ -234,7 +233,8 @@ OPENAI_MODEL=gpt-4.1-mini
 
 ### 8) Запуск на целевой машине
 
-1. Убедиться, что `ffmpeg` и `ffprobe` доступны из командной строки.
+1. Если собирали с `--add-binary` как выше, отдельная установка ffmpeg не нужна.
+   Если не собирали с бинарниками — убедиться, что `ffmpeg` и `ffprobe` доступны из PATH.
 2. Положить `.env` рядом с `DJSetAnalytic.exe`.
 3. Запустить `DJSetAnalytic.exe`.
 4. Приложение откроет браузер на `http://localhost:8000`.
@@ -245,8 +245,9 @@ OPENAI_MODEL=gpt-4.1-mini
 
 ## Типовые проблемы
 
-- `RuntimeError: Нужен ffmpeg в PATH`  
-  Установите ffmpeg и убедитесь, что `ffmpeg`/`ffprobe` доступны из терминала.
+- `Не найден ffmpeg...`  
+  Положите `ffmpeg.exe` и `ffprobe.exe` в `WebServer/bin` и пересоберите `.exe` с `--add-binary`,
+  либо установите ffmpeg системно и добавьте в `PATH`.
 
 - `Для скачивания DOCX установите зависимость: pip install python-docx`  
   Установите пакет `python-docx` в активное окружение Python.

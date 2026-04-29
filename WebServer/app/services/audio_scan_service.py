@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass
@@ -44,16 +45,51 @@ def load_audd_api_token() -> str:
 
 
 def _ffmpeg_bin() -> str:
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise RuntimeError("Нужен ffmpeg в PATH.")
-    return ffmpeg
+    return _resolve_tool_binary("ffmpeg", "ffmpeg.exe")
+
+
+def _candidate_bin_dirs() -> list[Path]:
+    dirs: list[Path] = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        base = Path(meipass)
+        dirs.extend([base / "bin", base / "WebServer" / "bin"])
+    exe_dir = Path(sys.executable).resolve().parent
+    dirs.extend(
+        [
+            PROJECT_ROOT / "WebServer" / "bin",
+            PROJECT_ROOT / "bin",
+            Path.cwd() / "WebServer" / "bin",
+            Path.cwd() / "bin",
+            exe_dir / "bin",
+            exe_dir.parent / "WebServer" / "bin",
+            exe_dir.parent / "bin",
+        ]
+    )
+    seen: set[str] = set()
+    unique_dirs: list[Path] = []
+    for path in dirs:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_dirs.append(path)
+    return unique_dirs
+
+
+def _resolve_tool_binary(unix_name: str, win_name: str) -> str:
+    for bin_dir in _candidate_bin_dirs():
+        candidate = bin_dir / win_name
+        if candidate.is_file():
+            return str(candidate)
+    tool = shutil.which(unix_name)
+    if tool:
+        return tool
+    raise RuntimeError(f"Не найден {unix_name}. Положите {win_name} в WebServer/bin или добавьте в PATH.")
 
 
 def ffprobe_duration_sec(path: Path) -> float:
-    probe = shutil.which("ffprobe")
-    if not probe:
-        raise RuntimeError("Нужен ffprobe (пакет ffmpeg).")
+    probe = _resolve_tool_binary("ffprobe", "ffprobe.exe")
     cmd = [
         probe,
         "-v",
