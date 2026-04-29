@@ -175,7 +175,22 @@ cd ..
 Из корня проекта:
 
 ```bash
-pyinstaller --onefile --name DJSetAnalytic --add-data "Frontend/dist;Frontend/dist" --add-data "WebServer/app;app" --add-binary "WebServer/bin/ffmpeg.exe;bin" --add-binary "WebServer/bin/ffprobe.exe;bin" WebServer/run_server.py
+python -m PyInstaller --onefile --name DJSetAnalytic ^
+  --collect-all fastapi ^
+  --collect-all starlette ^
+  --collect-all uvicorn ^
+  --collect-all pydantic ^
+  --collect-all anyio ^
+  --collect-all websockets ^
+  --hidden-import fastapi ^
+  --hidden-import starlette ^
+  --hidden-import uvicorn ^
+  --hidden-import app.main ^
+  --add-data "Frontend/dist;Frontend/dist" ^
+  --add-data "WebServer/app;app" ^
+  --add-binary "WebServer/bin/ffmpeg.exe;bin" ^
+  --add-binary "WebServer/bin/ffprobe.exe;bin" ^
+  WebServer/run_server.py
 ```
 
 Готовый файл будет в:
@@ -189,7 +204,22 @@ dist\DJSetAnalytic.exe
 Если нужен запуск без terminal window:
 
 ```bash
-pyinstaller --onefile --windowed --name DJSetAnalytic --add-data "Frontend/dist;Frontend/dist" --add-data "WebServer/app;app" --add-binary "WebServer/bin/ffmpeg.exe;bin" --add-binary "WebServer/bin/ffprobe.exe;bin" WebServer/run_server.py
+python -m PyInstaller --onefile --windowed --name DJSetAnalytic ^
+  --collect-all fastapi ^
+  --collect-all starlette ^
+  --collect-all uvicorn ^
+  --collect-all pydantic ^
+  --collect-all anyio ^
+  --collect-all websockets ^
+  --hidden-import fastapi ^
+  --hidden-import starlette ^
+  --hidden-import uvicorn ^
+  --hidden-import app.main ^
+  --add-data "Frontend/dist;Frontend/dist" ^
+  --add-data "WebServer/app;app" ^
+  --add-binary "WebServer/bin/ffmpeg.exe;bin" ^
+  --add-binary "WebServer/bin/ffprobe.exe;bin" ^
+  WebServer/run_server.py
 ```
 
 ### 6) Что нужно на компьютере пользователя
