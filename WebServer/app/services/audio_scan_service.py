@@ -11,7 +11,7 @@ from typing import Callable
 import requests
 from dotenv import load_dotenv
 
-from app.core.config import PROJECT_ROOT
+from app.core.config import FORWARDER_HEADER, FORWARDER_RECOGNIZE_ENDPOINT, PROJECT_ROOT
 
 
 ProgressCallback = Callable[[dict], None]
@@ -27,10 +27,6 @@ class ScanConfig:
     max_wait: float = 180.0
     poll_interval: float = 2.0
     limit: int = 0
-
-
-FORWARDER_HEADER = "X-Forwarder-Token"
-FORWARDER_ENDPOINT = "/v1/recognize"
 
 
 def _load_env() -> None:
@@ -68,7 +64,7 @@ def build_audd_forwarder_url() -> str:
         return ""
     scheme = load_audd_forwarder_scheme()
     port = load_audd_forwarder_port()
-    return f"{scheme}://{host}:{port}{FORWARDER_ENDPOINT}"
+    return f"{scheme}://{host}:{port}{FORWARDER_RECOGNIZE_ENDPOINT}"
 
 
 def _ffmpeg_bin() -> str:
@@ -105,13 +101,22 @@ def _candidate_bin_dirs() -> list[Path]:
 
 
 def _resolve_tool_binary(unix_name: str, win_name: str) -> str:
-    for bin_dir in _candidate_bin_dirs():
-        candidate = bin_dir / win_name
-        if candidate.is_file():
-            return str(candidate)
-    tool = shutil.which(unix_name)
+    is_windows = os.name == "nt"
+    candidate_names = [win_name] if is_windows else [unix_name, win_name]
+
+    # 1) Приоритетно пробуем системный бинарник из PATH (CLI).
+    preferred_system_name = win_name if is_windows else unix_name
+    tool = shutil.which(preferred_system_name)
     if tool:
         return tool
+
+    # 2) Fallback: bundled/local bin.
+    for bin_dir in _candidate_bin_dirs():
+        for candidate_name in candidate_names:
+            candidate = bin_dir / candidate_name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+
     raise RuntimeError(f"Не найден {unix_name}. Положите {win_name} в WebServer/bin или добавьте в PATH.")
 
 

@@ -1,45 +1,41 @@
 # DJSet Analytic
 
-DJSet Analytic - это fullstack-сервис для автоматического разбора длинных DJ-сетов:
-- загрузка аудиофайла через веб-интерфейс;
-- фоновое распознавание треков по окнам (AudD API);
-- AI-очистка и нормализация треклиста (OpenAI);
-- история задач и live-статус по WebSocket;
-- скачивание результата в формате `.docx`.
+DJSet Analytic — локальное приложение для анализа DJ-сетов:
+- загрузка аудио через веб-интерфейс;
+- распознавание по окнам;
+- AI-очистка и нормализация треклиста;
+- история задач и live-статус;
+- скачивание результата в `.docx`.
 
-## Что внутри
+## Как теперь устроено
 
-- `WebServer/` - FastAPI API, локальный фоновый worker, бизнес-логика обработки.
-- `Frontend/` - React + TypeScript интерфейс.
-- `AuddForwarder/` - отдельный FastAPI relay для проксирования запросов AudD через зарубежный сервер.
-- `WebServer/data/uploads/` - временные входные файлы.
-- `WebServer/data/results/` - финальные результаты обработки.
+- `WebServer` всегда ходит во `AuddForwarder`.
+- `AuddForwarder` уже ходит в внешние API (`AudD`, `OpenAI`).
+- При запуске `WebServer/run_server.py` выполняется проверка `AuddForwarder /health`.
+  Если форвардер недоступен или `ok != true`, `WebServer` не стартует.
 
-## Архитектура (коротко)
+## Структура
 
-1. Пользователь загружает аудиофайл (`POST /api/scans`).
-2. API ставит задачу во встроенную локальную очередь.
-3. Воркер режет аудио на окна и отправляет фрагменты в AudD.
-4. Сырые совпадения передаются в OpenAI для очистки/дедупликации/форматирования.
-5. Итог сохраняется в текст и отдается пользователю как `.docx`.
-6. Статусы этапов (`queued`, `audio_scan`, `ai_processing`, `completed/failed`) транслируются в UI.
+- `WebServer/` — FastAPI API + локальная очередь задач.
+- `Frontend/` — React UI.
+- `AuddForwarder/` — отдельный прокси-сервис для AudD/OpenAI.
 
 ## Требования
 
-- Python 3.11+ (рекомендуется 3.12)
-- Node.js 18+
-- `ffmpeg` и `ffprobe` (можно системные в `PATH` или локальные в `WebServer/bin`)
+- Python 3.11+ (лучше 3.12).
+- Node.js 18+ (для сборки фронта).
+- `ffmpeg`/`ffprobe`:
+  - приоритетно системные из `PATH`;
+  - fallback: файлы в `WebServer/bin`.
 
-## Быстрый старт
+## 1) Настройка форвардера (обязательно)
 
-### 1) Клонирование
+См. `AuddForwarder/README.md`.  
+Коротко: поднять `AuddForwarder`, проверить `GET /health`.
 
-```bash
-git clone <your-repo-url>
-cd djset_analytic
-```
+## 2) Настройка локального приложения
 
-### 2) Python-зависимости
+### Установка зависимостей
 
 ```bash
 python3 -m venv venv
@@ -48,7 +44,7 @@ python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 ```
 
-### 3) Frontend-зависимости и сборка
+### Сборка фронтенда
 
 ```bash
 cd Frontend
@@ -57,103 +53,67 @@ npm run build
 cd ..
 ```
 
-### 4) Создать `.env` в корне проекта
-
-Файл `.env` не хранится в репозитории. Создайте его вручную по шаблону ниже.
+### Файл `.env` в корне проекта
 
 ```dotenv
 # Auth
 LOGIN=admin
 PASSWORD=admin
-JWT_SECRET=change-me
+JWT_SECRET=change_me_long_random_secret
 JWT_TTL_SEC=172800
 AUTH_COOKIE_NAME=djset_auth
 
-# Optional local data root override
-# DATA_ROOT=C:/ProgramData/DJSetAnalytic/data
-
-# API behavior
+# App behavior
 SCAN_MAX_CONCURRENT=3
 IDEMPOTENCY_TTL_SEC=3600
 OPEN_BROWSER_ON_STARTUP=1
 
-# AudD
-AUDD_API_KEY=your_audd_api_key
-# Optional: route AudD calls via remote forwarder
-# AUDD_FORWARDER_URL=https://your-forwarder.example.com
-# AUDD_FORWARDER_TOKEN=your_shared_forwarder_token
+# Optional data path
+# DATA_ROOT=/absolute/path/to/data
 
-# OpenAI
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-4.1-mini
+# Forwarder connection (обязательные)
+AUDD_FORWARDER_HOST=127.0.0.1
+AUDD_FORWARDER_PORT=18765
+AUDD_FORWARDER_SCHEME=http
+AUDD_FORWARDER_TOKEN=change_me_same_as_forwarder_shared_token
 ```
 
-### 5) Запуск
+`WebServer` использует только эти настройки подключения к форвардеру.
+
+## 3) Запуск локального WebServer
 
 ```bash
 cd WebServer
 ../venv/bin/python run_server.py
 ```
 
-Сервис будет доступен на [http://localhost:8000](http://localhost:8000).
+После запуска UI доступен по [http://localhost:8000](http://localhost:8000).
 
-`run_server.py` запускает:
-- FastAPI + Uvicorn;
-- встроенный локальный worker (без Redis/Celery-сервера);
-- автозапуск браузера.
+## Локальная проверка (оба сервиса на одном Mac/ПК)
 
-## API
+- В `AuddForwarder/.env`:
+  - `FORWARDER_BIND_HOST=127.0.0.1`
+  - `FORWARDER_BIND_PORT=18765`
+- В корневом `.env` (`WebServer`):
+  - `AUDD_FORWARDER_HOST=127.0.0.1`
+  - `AUDD_FORWARDER_PORT=18765`
+  - `AUDD_FORWARDER_SCHEME=http`
+  - `AUDD_FORWARDER_TOKEN=<тот же токен>`
 
-### Auth
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/auth/logout`
+## Удаленный форвардер (другой сервер/другая сеть)
 
-### Scan jobs
-- `POST /api/scans` - загрузка и запуск новой задачи.
-- `GET /api/scans/active` - активные задачи.
-- `GET /api/scans/history` - история задач.
-- `GET /api/scans/{job_id}/download` - скачать результат в `.docx`.
-- `WS /api/scans/ws/{job_id}` - live-статус задачи.
+В корневом `.env` приложения:
 
-## Поведение и ограничения
-
-- По умолчанию одновременно выполняется не более `3` задач (`SCAN_MAX_CONCURRENT`).
-- Повторная отправка запроса может быть защищена `Idempotency-Key`.
-- Исходные тяжелые аудиофайлы удаляются после обработки.
-- Результат формируется AI-этапом и сохраняется в `WebServer/data/results/`.
-- История задач хранится локально в SQLite-файле (`DATA_ROOT/jobs.sqlite3`), без MongoDB.
-
-## Разработка
-
-Frontend dev-server:
-
-```bash
-cd Frontend
-npm run dev
+```dotenv
+AUDD_FORWARDER_HOST=your-forwarder-domain-or-ip
+AUDD_FORWARDER_PORT=443
+AUDD_FORWARDER_SCHEME=https
+AUDD_FORWARDER_TOKEN=change_me_same_as_forwarder_shared_token
 ```
 
-Backend (основной режим локально):
+## Windows `.exe` сборка локального приложения
 
-```bash
-cd WebServer
-../venv/bin/python run_server.py
-```
-
-## Сборка в Windows `.exe` (PyInstaller)
-
-Проект можно упаковать в один исполняемый файл, который:
-- поднимает локальный backend/worker;
-- автоматически открывает браузер на `http://localhost:8000`.
-
-### 1) Где собирать
-
-Собирать `.exe` нужно на Windows (или в Windows VM).  
-PyInstaller собирает бинарник под текущую ОС.
-
-### 2) Подготовка окружения
-
-В корне проекта:
+Собирать на Windows:
 
 ```bash
 python -m venv venv
@@ -163,7 +123,7 @@ python -m pip install -r requirements.txt
 python -m pip install pyinstaller python-docx
 ```
 
-### 3) Собрать frontend (обязательно)
+Собрать фронт:
 
 ```bash
 cd Frontend
@@ -172,11 +132,7 @@ npm run build
 cd ..
 ```
 
-После этого должна существовать папка `Frontend/dist`.
-
-### 4) Сборка `.exe`
-
-Из корня проекта:
+Сборка `.exe`:
 
 ```bash
 python -m PyInstaller --onefile --name DJSetAnalytic ^
@@ -197,102 +153,32 @@ python -m PyInstaller --onefile --name DJSetAnalytic ^
   WebServer/run_server.py
 ```
 
-Готовый файл будет в:
+## API (кратко)
 
-```text
-dist\DJSetAnalytic.exe
-```
-
-### 5) Режим без консоли (опционально)
-
-Если нужен запуск без terminal window:
-
-```bash
-python -m PyInstaller --onefile --windowed --name DJSetAnalytic ^
-  --collect-all fastapi ^
-  --collect-all starlette ^
-  --collect-all uvicorn ^
-  --collect-all pydantic ^
-  --collect-all anyio ^
-  --collect-all websockets ^
-  --hidden-import fastapi ^
-  --hidden-import starlette ^
-  --hidden-import uvicorn ^
-  --hidden-import app.main ^
-  --add-data "Frontend/dist;Frontend/dist" ^
-  --add-data "WebServer/app;app" ^
-  --add-binary "WebServer/bin/ffmpeg.exe;bin" ^
-  --add-binary "WebServer/bin/ffprobe.exe;bin" ^
-  WebServer/run_server.py
-```
-
-### 6) Что нужно на компьютере пользователя
-
-Нужно:
-- `DJSetAnalytic.exe`;
-- интернет-доступ к AudD/OpenAI API;
-- `.env` рядом с приложением (или в рабочей директории запуска).
-
-Не нужно:
-- Redis;
-- MongoDB;
-- Node.js;
-- Python (при корректной сборке PyInstaller).
-
-### 7) Пример `.env` для desktop-запуска
-
-```dotenv
-# Auth
-LOGIN=admin
-PASSWORD=admin
-JWT_SECRET=change-me
-JWT_TTL_SEC=172800
-AUTH_COOKIE_NAME=djset_auth
-
-# Optional local data root override
-# DATA_ROOT=C:/ProgramData/DJSetAnalytic/data
-
-# API behavior
-SCAN_MAX_CONCURRENT=3
-IDEMPOTENCY_TTL_SEC=3600
-OPEN_BROWSER_ON_STARTUP=1
-
-# AudD
-AUDD_API_KEY=your_audd_api_key
-# Optional: route AudD calls via remote forwarder
-# AUDD_FORWARDER_URL=https://your-forwarder.example.com
-# AUDD_FORWARDER_TOKEN=your_shared_forwarder_token
-
-# OpenAI
-OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-4.1-mini
-```
-
-### 8) Запуск на целевой машине
-
-1. Если собирали с `--add-binary` как выше, отдельная установка ffmpeg не нужна.
-   Если не собирали с бинарниками — убедиться, что `ffmpeg` и `ffprobe` доступны из PATH.
-2. Положить `.env` рядом с `DJSetAnalytic.exe`.
-3. Запустить `DJSetAnalytic.exe`.
-4. Приложение откроет браузер на `http://localhost:8000`.
-
-Примечание:
-- локальные данные по умолчанию сохраняются в `ProgramData/DJSetAnalytic/data` (если не задан `DATA_ROOT`).
-- если браузер не нужно открывать автоматически, поставьте `OPEN_BROWSER_ON_STARTUP=0`.
+- Auth:
+  - `POST /api/auth/login`
+  - `GET /api/auth/me`
+  - `POST /api/auth/logout`
+- Сканирование:
+  - `POST /api/scans`
+  - `GET /api/scans/active`
+  - `GET /api/scans/history`
+  - `GET /api/scans/{job_id}/download`
+  - `WS /api/scans/ws/{job_id}`
 
 ## Типовые проблемы
 
-- `Не найден ffmpeg...`  
-  Положите `ffmpeg.exe` и `ffprobe.exe` в `WebServer/bin` и пересоберите `.exe` с `--add-binary`,
-  либо установите ffmpeg системно и добавьте в `PATH`.
+- `Forwarder недоступен ... /health`
+  - проверить, что `AuddForwarder` запущен;
+  - проверить `AUDD_FORWARDER_HOST/PORT/SCHEME`;
+  - проверить сетевую доступность и firewall.
 
-- `Для скачивания DOCX установите зависимость: pip install python-docx`  
-  Установите пакет `python-docx` в активное окружение Python.
-
-- Ошибки от AudD/OpenAI  
-  Проверьте корректность API-ключей и доступность внешних сервисов.
+- `Не найден ffmpeg/ffprobe`
+  - установить системный ffmpeg и добавить в `PATH`;
+  - либо положить бинарники в `WebServer/bin`.
 
 ## Безопасность
 
-- Не коммитьте `.env` и ключи API.
-- Для публичного деплоя обязательно поменяйте `JWT_SECRET`, `LOGIN`, `PASSWORD`.
+- Никогда не коммитьте `.env`.
+- Используйте длинные случайные значения для `JWT_SECRET` и `FORWARDER_SHARED_TOKEN`.
+- Для удаленного форвардера лучше использовать HTTPS.
