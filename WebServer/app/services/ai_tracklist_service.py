@@ -1,16 +1,7 @@
 from dataclasses import dataclass
-from typing import Any, TypedDict
+import os
 
-from langgraph.graph import END, START, StateGraph
-from openai import OpenAI
-
-from ..core.config import AI_TRACKLIST_SYSTEM_PROMPT, OPENAI_API_KEY, OPENAI_MODEL
-
-
-class CleanState(TypedDict):
-    raw_text: str
-    cleaned_text: str
-
+import requests
 
 @dataclass(slots=True)
 class CleanResult:
@@ -19,72 +10,50 @@ class CleanResult:
     used_ai: bool
 
 
-def _extract_text(response: Any) -> str:
-    text = getattr(response, "output_text", "") or ""
-    if text:
-        return text.strip()
-
-    output = getattr(response, "output", None)
-    if isinstance(output, list):
-        chunks: list[str] = []
-        for item in output:
-            content = getattr(item, "content", None)
-            if isinstance(content, list):
-                for chunk in content:
-                    chunk_text = getattr(chunk, "text", None)
-                    if isinstance(chunk_text, str):
-                        chunks.append(chunk_text)
-        if chunks:
-            return "\n".join(chunks).strip()
-    return ""
+def _forwarder_url() -> str:
+    host = (os.getenv("AUDD_FORWARDER_HOST") or "").strip()
+    if not host:
+        return ""
+    scheme = (os.getenv("AUDD_FORWARDER_SCHEME") or "http").strip().lower()
+    if scheme not in {"http", "https"}:
+        raise RuntimeError("AUDD_FORWARDER_SCHEME должен быть http или https.")
+    port = (os.getenv("AUDD_FORWARDER_PORT") or "18765").strip()
+    return f"{scheme}://{host}:{port}/v1/clean-tracklist"
 
 
-def _clean_with_openai(state: CleanState) -> CleanState:
-    if not OPENAI_API_KEY:
-        raise RuntimeError("OPENAI_API_KEY не задан.")
+def _forwarder_headers() -> dict[str, str]:
+    token = (os.getenv("AUDD_FORWARDER_TOKEN") or "").strip()
+    headers: dict[str, str] = {"Content-Type": "application/json"}
+    if token:
+        headers["X-Forwarder-Token"] = token
+    return headers
 
-    client = OpenAI(api_key=OPENAI_API_KEY, max_retries=3)
-    user_prompt = f"Сырой список распознаваний:\n{state['raw_text']}\n"
+
+def _clean_with_forwarder(raw_text: str) -> str:
+    url = _forwarder_url()
+    if not url:
+        raise RuntimeError("Не задан AUDD_FORWARDER_HOST в .env.")
+
+    payload = {"raw_text": raw_text}
+    headers = _forwarder_headers()
 
     try:
-        response = client.responses.create(
-            model=OPENAI_MODEL,
-            input=user_prompt,
-            tools=[{"type": "web_search"}],
-            instructions=AI_TRACKLIST_SYSTEM_PROMPT
-        )
-    except Exception:
-        # Фолбэк, если у модели/аккаунта не включен web search tool.
-        response = client.responses.create(
-            model=OPENAI_MODEL,
-            input=user_prompt,
-            instructions=AI_TRACKLIST_SYSTEM_PROMPT
-        )
+        response = requests.post(url, json=payload, headers=headers, timeout=180)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"Ошибка вызова AI forwarder: {exc}") from exc
 
-    cleaned_text = _extract_text(response)
+    cleaned_text = str(data.get("cleaned_text") or "").strip()
     if not cleaned_text:
-        raise RuntimeError("LLM вернула пустой ответ при очистке треклиста.")
-    state["cleaned_text"] = cleaned_text
-    return state
+        raise RuntimeError("Forwarder вернул пустой cleaned_text.")
+    return cleaned_text
 
 
 def clean_tracklist_with_ai(raw_text: str) -> CleanResult:
     if not raw_text.strip():
         return CleanResult(cleaned_text="Очищенный треклист\n", cleaned_tracks=[], used_ai=False)
-
-    graph = StateGraph(CleanState)
-    graph.add_node("clean_with_openai", _clean_with_openai)
-    graph.add_edge(START, "clean_with_openai")
-    graph.add_edge("clean_with_openai", END)
-    chain = graph.compile()
-
-    result = chain.invoke(
-        {
-            "raw_text": raw_text,
-            "cleaned_text": "",
-        }
-    )
-    cleaned_text = result.get("cleaned_text", "").strip()
+    cleaned_text = _clean_with_forwarder(raw_text).strip()
     if not cleaned_text:
         return CleanResult(cleaned_text="Очищенный треклист\n", cleaned_tracks=[], used_ai=False)
     # Текст сохраняем 1-в-1 как вернула нейросеть, без локального пост-парсинга.
