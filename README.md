@@ -11,7 +11,6 @@ DJSet Analytic - это fullstack-сервис для автоматическо
 
 - `WebServer/` - FastAPI API, локальный фоновый worker, бизнес-логика обработки.
 - `Frontend/` - React + TypeScript интерфейс.
-- `AuddForwarder/` - отдельный FastAPI relay для проксирования запросов AudD через зарубежный сервер.
 - `WebServer/data/uploads/` - временные входные файлы.
 - `WebServer/data/results/` - финальные результаты обработки.
 
@@ -79,9 +78,6 @@ OPEN_BROWSER_ON_STARTUP=1
 
 # AudD
 AUDD_API_KEY=your_audd_api_key
-# Optional: route AudD calls via remote forwarder
-# AUDD_FORWARDER_URL=https://your-forwarder.example.com
-# AUDD_FORWARDER_TOKEN=your_shared_forwarder_token
 
 # OpenAI
 OPENAI_API_KEY=your_openai_api_key
@@ -259,9 +255,6 @@ OPEN_BROWSER_ON_STARTUP=1
 
 # AudD
 AUDD_API_KEY=your_audd_api_key
-# Optional: route AudD calls via remote forwarder
-# AUDD_FORWARDER_URL=https://your-forwarder.example.com
-# AUDD_FORWARDER_TOKEN=your_shared_forwarder_token
 
 # OpenAI
 OPENAI_API_KEY=your_openai_api_key

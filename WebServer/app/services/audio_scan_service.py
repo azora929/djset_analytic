@@ -29,46 +29,19 @@ class ScanConfig:
     limit: int = 0
 
 
-FORWARDER_HEADER = "X-Forwarder-Token"
-FORWARDER_ENDPOINT = "/v1/recognize"
+AUDD_API_URL = "https://api.audd.io/"
 
 
 def _load_env() -> None:
     load_dotenv(PROJECT_ROOT / ".env")
 
 
-def load_audd_forwarder_host() -> str:
-    return (os.environ.get("AUDD_FORWARDER_HOST") or "").strip()
-
-
-def load_audd_forwarder_port() -> int:
-    raw = (os.environ.get("AUDD_FORWARDER_PORT") or "").strip()
-    if not raw:
-        return 18765
-    try:
-        return int(raw)
-    except ValueError as exc:
-        raise RuntimeError("AUDD_FORWARDER_PORT должен быть числом.") from exc
-
-
-def load_audd_forwarder_scheme() -> str:
-    scheme = (os.environ.get("AUDD_FORWARDER_SCHEME") or "http").strip().lower()
-    if scheme not in {"http", "https"}:
-        raise RuntimeError("AUDD_FORWARDER_SCHEME должен быть http или https.")
-    return scheme
-
-
-def load_audd_forwarder_token() -> str:
-    return (os.environ.get("AUDD_FORWARDER_TOKEN") or "").strip()
-
-
-def build_audd_forwarder_url() -> str:
-    host = load_audd_forwarder_host()
-    if not host:
-        return ""
-    scheme = load_audd_forwarder_scheme()
-    port = load_audd_forwarder_port()
-    return f"{scheme}://{host}:{port}{FORWARDER_ENDPOINT}"
+def load_audd_api_token() -> str:
+    return (
+        (os.environ.get("AUDD_API_KEY") or "").strip()
+        or (os.environ.get("AUDD_API_TOKEN") or "").strip()
+        or (os.environ.get("AUDIOTAG_API_KEY") or "").strip()
+    )
 
 
 def _ffmpeg_bin() -> str:
@@ -187,27 +160,21 @@ def suggest_min_step(*, duration: float, segment: float, budget_sec: float) -> f
     return span / (n_max - 1) + 0.001
 
 
-def identify_upload(path: Path) -> dict:
+def _api_post(data: dict, files: dict | None = None) -> dict:
+    response = requests.post(AUDD_API_URL, data=data, files=files, timeout=120)
+    response.raise_for_status()
+    return response.json()
+
+
+def identify_upload(path: Path, *, api_token: str) -> dict:
     mime = "audio/wav" if path.suffix.lower() == ".wav" else "application/octet-stream"
     with path.open("rb") as file_obj:
-        file_bytes = file_obj.read()
-        files = {"file": (path.name, file_bytes, mime)}
-        forwarder_url = build_audd_forwarder_url()
-        if not forwarder_url:
-            raise RuntimeError("Не задан AUDD_FORWARDER_HOST в .env.")
-
-        headers = {}
-        forwarder_token = load_audd_forwarder_token()
-        if forwarder_token:
-            headers[FORWARDER_HEADER] = forwarder_token
-        response = requests.post(
-            forwarder_url,
-            files=files,
-            headers=headers,
-            timeout=120,
-        )
-        response.raise_for_status()
-        return response.json()
+        files = {"file": (path.name, file_obj, mime)}
+        data = {
+            "api_token": api_token,
+            "return": "apple_music,spotify",
+        }
+        return _api_post(data=data, files=files)
 
 
 def _extract_error_code(resp: dict) -> str:
@@ -246,10 +213,21 @@ def poll_until_done(response: dict) -> dict:
     return response
 
 
-def _identify_window(upload_path: Path) -> tuple[dict, dict]:
-    identify_response = identify_upload(upload_path)
-    final_response = poll_until_done(identify_response)
-    return identify_response, final_response
+def identify_upload_poll_with_keys(
+    upload_path: Path,
+    *,
+    api_keys: list[str],
+    start_time: float,
+    time_len: float,
+    max_wait: float,
+    interval: float,
+) -> tuple[dict, dict]:
+    _ = start_time, time_len, max_wait, interval
+    if not api_keys:
+        return {}, {}
+    response = identify_upload(upload_path, api_token=api_keys[0])
+    final = poll_until_done(response)
+    return response, final
 
 
 def _is_successful_recognition(resp: dict) -> bool:
@@ -295,17 +273,27 @@ def _flush_missing_range(
     missing_ranges.append((start_sec, end_sec, windows_count))
 
 
-def _validate_scan_config(config: ScanConfig) -> None:
+def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> dict:
+    _load_env()
+    api_token = load_audd_api_token()
+    if not api_token:
+        raise RuntimeError("Не задан AUDD_API_KEY (или AUDD_API_TOKEN) в .env.")
+    api_keys = [api_token]
+
     if config.time_len < 5:
         raise RuntimeError("AudioTag требует минимум 5 секунд на фрагмент.")
 
+    src = config.source_file.resolve()
+    if not src.is_file():
+        raise RuntimeError(f"Файл не найден: {src}")
 
-def _calculate_scan_plan(config: ScanConfig, src: Path) -> tuple[float, list[float]]:
     duration = ffprobe_duration_sec(src)
     starts = iter_scan_starts(duration=duration, segment_duration=config.time_len, step=config.scan_step)
     if config.limit > 0:
         starts = starts[: config.limit]
-    total_quota = len(starts) * config.time_len
+
+    total_windows = len(starts)
+    total_quota = total_windows * config.time_len
     if total_quota > config.max_total_sec:
         min_step = suggest_min_step(duration=duration, segment=config.time_len, budget_sec=config.max_total_sec)
         raise RuntimeError(
@@ -313,51 +301,6 @@ def _calculate_scan_plan(config: ScanConfig, src: Path) -> tuple[float, list[flo
             f"нужно {total_quota:.0f}с, доступно {config.max_total_sec:.0f}с. "
             f"Минимальный безопасный scan_step ~{min_step:.2f}с."
         )
-    return duration, starts
-
-
-def _build_progress_payload(processed_windows: int, total_windows: int) -> dict:
-    return {
-        "processed_windows": processed_windows,
-        "total_windows": total_windows,
-        "progress_pct": round((processed_windows / total_windows) * 100, 2) if total_windows else 100.0,
-        "message": f"Обработано окон: {processed_windows}/{total_windows}",
-    }
-
-
-def _append_missing_ranges_summary(
-    raw_lines: list[str],
-    missing_ranges: list[tuple[float, float, int]],
-    missing_pct: float,
-) -> None:
-    if not missing_ranges:
-        return
-    raw_lines.append("")
-    raw_lines.append("Окна без найденных треков:")
-    for start_sec, end_sec, windows_count in missing_ranges:
-        raw_lines.append(f"{start_sec:.2f}s - {end_sec:.2f}s\tокон: {windows_count}")
-    raw_lines.append(f"Процент окон без найденных треков: {missing_pct:.2f}%")
-
-
-def _append_early_stop_summary(raw_lines: list[str], stopped_early: bool, stop_reason: str) -> None:
-    if not stopped_early:
-        return
-    raw_lines.append("")
-    raw_lines.append(f"Сканирование остановлено досрочно: {stop_reason}")
-
-
-def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> dict:
-    _load_env()
-    if not build_audd_forwarder_url():
-        raise RuntimeError("Не задан AUDD_FORWARDER_HOST в .env.")
-    _validate_scan_config(config)
-
-    src = config.source_file.resolve()
-    if not src.is_file():
-        raise RuntimeError(f"Файл не найден: {src}")
-
-    _, starts = _calculate_scan_plan(config, src)
-    total_windows = len(starts)
 
     config.out_titles.parent.mkdir(parents=True, exist_ok=True)
     seen_tracks: set[str] = set()
@@ -377,7 +320,14 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
         for idx, start_sec in enumerate(starts, start=1):
             ffmpeg_extract_audiotag_wav(src, temp_wav, start_sec=start_sec, duration_sec=config.time_len)
             try:
-                identify_resp, final_resp = _identify_window(temp_wav)
+                identify_resp, final_resp = identify_upload_poll_with_keys(
+                    temp_wav,
+                    api_keys=api_keys,
+                    start_time=0.0,
+                    time_len=config.time_len,
+                    max_wait=config.max_wait,
+                    interval=config.poll_interval,
+                )
             except requests.RequestException as exc:
                 stopped_early = True
                 stop_reason = f"AudD request error: {exc}"
@@ -411,7 +361,14 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
                 missing_end = start_sec + config.time_len
                 missing_windows_count += 1
             if progress:
-                progress(_build_progress_payload(idx, total_windows))
+                progress(
+                    {
+                        "processed_windows": idx,
+                        "total_windows": total_windows,
+                        "progress_pct": round((idx / total_windows) * 100, 2) if total_windows else 100.0,
+                        "message": f"Обработано окон: {idx}/{total_windows}",
+                    }
+                )
     finally:
         temp_wav.unlink(missing_ok=True)
 
@@ -419,8 +376,15 @@ def run_scan(config: ScanConfig, progress: ProgressCallback | None = None) -> di
     missing_total = sum(item[2] for item in missing_ranges)
     denominator = processed_windows if processed_windows > 0 else total_windows
     missing_pct = round((missing_total / denominator) * 100, 2) if denominator else 0.0
-    _append_missing_ranges_summary(raw_lines, missing_ranges, missing_pct)
-    _append_early_stop_summary(raw_lines, stopped_early, stop_reason)
+    if missing_ranges:
+        raw_lines.append("")
+        raw_lines.append("Окна без найденных треков:")
+        for start_sec, end_sec, windows_count in missing_ranges:
+            raw_lines.append(f"{start_sec:.2f}s - {end_sec:.2f}s\tокон: {windows_count}")
+        raw_lines.append(f"Процент окон без найденных треков: {missing_pct:.2f}%")
+    if stopped_early:
+        raw_lines.append("")
+        raw_lines.append(f"Сканирование остановлено досрочно: {stop_reason}")
 
     return {
         "tracks": tracks,
